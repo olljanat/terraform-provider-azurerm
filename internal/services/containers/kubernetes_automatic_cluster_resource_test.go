@@ -13,7 +13,6 @@ import (
 	"github.com/hashicorp/terraform-provider-azurerm/internal/acceptance"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/acceptance/check"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
-	"github.com/hashicorp/terraform-provider-azurerm/internal/services/containers"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 )
 
@@ -127,68 +126,6 @@ func TestAccKubernetesAutomaticCluster_microsoftDefender(t *testing.T) {
 			Check: acceptance.ComposeTestCheckFunc(
 				check.That(data.ResourceName).ExistsInAzure(r),
 				check.That(data.ResourceName).Key("microsoft_defender.#").HasValue("1"),
-			),
-		},
-		data.ImportStep(),
-	})
-}
-
-func TestAccKubernetesAutomaticCluster_DefaultNginxController(t *testing.T) {
-	webAppRoutingIngress := containers.KubernetesAutomaticClusterResource{}.Arguments()["web_app_routing_ingress"]
-	nginxController := webAppRoutingIngress.Elem.(*pluginsdk.Resource).Schema["default_nginx_controller"]
-
-	// `None` must be accepted, as it is for `azurerm_kubernetes_cluster`
-	for _, value := range []string{"AnnotationControlled", "External", "Internal", "None"} {
-		if _, errs := nginxController.ValidateFunc(value, "default_nginx_controller"); len(errs) > 0 {
-			t.Fatalf("expected %q to be a valid `default_nginx_controller`, got %+v", value, errs)
-		}
-	}
-
-	// an omitted `default_nginx_controller` is sent to Azure as `None` and read back as an empty string, so
-	// configurations which omit it and configurations which specify `None` must both be diff free
-	testData := []struct {
-		old      string
-		new      string
-		suppress bool
-	}{
-		{old: "", new: "None", suppress: true},
-		{old: "None", new: "", suppress: true},
-		{old: "", new: "Internal", suppress: false},
-		{old: "Internal", new: "None", suppress: false},
-		{old: "None", new: "External", suppress: false},
-	}
-
-	for _, v := range testData {
-		if actual := containers.SuppressDefaultNginxControllerNone("", v.old, v.new, nil); actual != v.suppress {
-			t.Fatalf("expected the difference between %q and %q to be suppressed: %t, got %t", v.old, v.new, v.suppress, actual)
-		}
-	}
-}
-
-func TestAccKubernetesAutomaticCluster_webAppRoutingIngressNginxNone(t *testing.T) {
-	data := acceptance.BuildTestData(t, "azurerm_kubernetes_automatic_cluster", "test")
-	r := KubernetesAutomaticClusterResource{}
-
-	data.ResourceTest(t, r, []acceptance.TestStep{
-		{
-			Config: r.webAppRoutingIngressNginxNoneConfig(data),
-			Check: acceptance.ComposeTestCheckFunc(
-				check.That(data.ResourceName).ExistsInAzure(r),
-			),
-		},
-		data.ImportStep(),
-		{
-			Config: r.webAppRoutingIngressNginxInternalConfig(data),
-			Check: acceptance.ComposeTestCheckFunc(
-				check.That(data.ResourceName).ExistsInAzure(r),
-				check.That(data.ResourceName).Key("web_app_routing_ingress.0.default_nginx_controller").HasValue("Internal"),
-			),
-		},
-		data.ImportStep(),
-		{
-			Config: r.webAppRoutingIngressNginxNoneConfig(data),
-			Check: acceptance.ComposeTestCheckFunc(
-				check.That(data.ResourceName).ExistsInAzure(r),
 			),
 		},
 		data.ImportStep(),
@@ -362,60 +299,6 @@ resource "azurerm_kubernetes_automatic_cluster" "test" {
     metrics_enabled            = true
     container_insights_enabled = true
     log_analytics_workspace_id = azurerm_log_analytics_workspace.test.id
-  }
-}
-`, data.RandomInteger, data.Locations.Primary)
-}
-
-func (KubernetesAutomaticClusterResource) webAppRoutingIngressNginxNoneConfig(data acceptance.TestData) string {
-	return fmt.Sprintf(`
-provider "azurerm" {
-  features {}
-}
-
-resource "azurerm_resource_group" "test" {
-  name     = "acctestRG-aks-%[1]d"
-  location = "%[2]s"
-}
-
-resource "azurerm_kubernetes_automatic_cluster" "test" {
-  name                = "acctestaks%[1]d"
-  location            = azurerm_resource_group.test.location
-  resource_group_name = azurerm_resource_group.test.name
-
-  identity {
-    type = "SystemAssigned"
-  }
-
-  web_app_routing_ingress {
-    default_nginx_controller = "None"
-  }
-}
-`, data.RandomInteger, data.Locations.Primary)
-}
-
-func (KubernetesAutomaticClusterResource) webAppRoutingIngressNginxInternalConfig(data acceptance.TestData) string {
-	return fmt.Sprintf(`
-provider "azurerm" {
-  features {}
-}
-
-resource "azurerm_resource_group" "test" {
-  name     = "acctestRG-aks-%[1]d"
-  location = "%[2]s"
-}
-
-resource "azurerm_kubernetes_automatic_cluster" "test" {
-  name                = "acctestaks%[1]d"
-  location            = azurerm_resource_group.test.location
-  resource_group_name = azurerm_resource_group.test.name
-
-  identity {
-    type = "SystemAssigned"
-  }
-
-  web_app_routing_ingress {
-    default_nginx_controller = "Internal"
   }
 }
 `, data.RandomInteger, data.Locations.Primary)

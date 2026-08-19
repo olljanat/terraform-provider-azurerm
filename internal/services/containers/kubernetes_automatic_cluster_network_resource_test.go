@@ -233,6 +233,23 @@ func TestAccKubernetesAutomaticCluster_webAppRoutingIngressDefaultNginx(t *testi
 	})
 }
 
+func TestAccKubernetesAutomaticCluster_webAppRoutingIngressNoneNginx(t *testing.T) {
+	data := acceptance.BuildTestData(t, "azurerm_kubernetes_automatic_cluster", "test")
+	r := KubernetesAutomaticClusterResource{}
+
+	data.ResourceTest(t, r, []acceptance.TestStep{
+		{
+			Config: r.webAppRoutingIngressNoneNginxConfig(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+				check.That(data.ResourceName).Key("web_app_routing_ingress.#").HasValue("1"),
+				check.That(data.ResourceName).Key("web_app_routing_ingress.0.default_nginx_controller").HasValue("None"),
+			),
+		},
+		data.ImportStep(),
+	})
+}
+
 func TestAccKubernetesAutomaticCluster_webAppRoutingIngressIstioEnabled(t *testing.T) {
 	data := acceptance.BuildTestData(t, "azurerm_kubernetes_automatic_cluster", "test")
 	r := KubernetesAutomaticClusterResource{}
@@ -601,6 +618,38 @@ resource "azurerm_kubernetes_automatic_cluster" "test" {
   web_app_routing_ingress {
     dns_zone_ids             = [azurerm_dns_zone.test.id]
     default_nginx_controller = "External"
+  }
+}
+`, data.RandomInteger, data.Locations.Primary, data.RandomInteger, data.RandomInteger)
+}
+
+func (KubernetesAutomaticClusterResource) webAppRoutingIngressNoneNginxConfig(data acceptance.TestData) string {
+	return fmt.Sprintf(`
+provider "azurerm" {
+  features {}
+}
+
+resource "azurerm_resource_group" "test" {
+  name     = "acctestRG-aks-%d"
+  location = "%s"
+}
+
+resource "azurerm_dns_zone" "test" {
+  name                = "acctest%d.example.com"
+  resource_group_name = azurerm_resource_group.test.name
+}
+
+resource "azurerm_kubernetes_automatic_cluster" "test" {
+  name                = "acctestaks%d"
+  location            = azurerm_resource_group.test.location
+  resource_group_name = azurerm_resource_group.test.name
+
+  identity {
+    type = "SystemAssigned"
+  }
+
+  web_app_routing_ingress {
+    default_nginx_controller = "None"
   }
 }
 `, data.RandomInteger, data.Locations.Primary, data.RandomInteger, data.RandomInteger)
