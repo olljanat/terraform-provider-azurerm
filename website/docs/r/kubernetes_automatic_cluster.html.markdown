@@ -151,6 +151,8 @@ The following arguments are supported:
 
 * `hosted_system` - (Optional) A `hosted_system` block as defined below.
 
+* `microsoft_defender` - (Optional) A `microsoft_defender` block as defined below.
+
 * `monitor` - (Optional) A `monitor` block as defined below.
 
 * `private_cluster` - (Optional) A `private_cluster` block as defined below.
@@ -232,6 +234,12 @@ A `hosted_system` block supports the following:
 * `node_subnet_id` - (Required) The ID of the Subnet where the user nodes are hosted. Is required for bring your own networking
 
 * `system_node_subnet_id` - (Required) The ID of the Subnet where the system nodes are hosted. Changing this forces a new resource to be created. Is required for bring your own networking
+
+---
+
+A `microsoft_defender` block supports the following:
+
+* `log_analytics_workspace_id` - (Required) Specifies the ID of the Log Analytics Workspace where the audit logs collected by Microsoft Defender should be sent to.
 
 ---
 

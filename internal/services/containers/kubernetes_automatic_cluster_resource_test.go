@@ -110,6 +110,29 @@ func TestAccKubernetesAutomaticCluster_monitor(t *testing.T) {
 	})
 }
 
+func TestAccKubernetesAutomaticCluster_microsoftDefender(t *testing.T) {
+	data := acceptance.BuildTestData(t, "azurerm_kubernetes_automatic_cluster", "test")
+	r := KubernetesAutomaticClusterResource{}
+
+	data.ResourceTest(t, r, []acceptance.TestStep{
+		{
+			Config: r.basic(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+			),
+		},
+		data.ImportStep(),
+		{
+			Config: r.microsoftDefenderConfig(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+				check.That(data.ResourceName).Key("microsoft_defender.#").HasValue("1"),
+			),
+		},
+		data.ImportStep(),
+	})
+}
+
 func TestAccKubernetesAutomaticCluster_DefaultNginxController(t *testing.T) {
 	webAppRoutingIngress := containers.KubernetesAutomaticClusterResource{}.Arguments()["web_app_routing_ingress"]
 	nginxController := webAppRoutingIngress.Elem.(*pluginsdk.Resource).Schema["default_nginx_controller"]
@@ -393,6 +416,45 @@ resource "azurerm_kubernetes_automatic_cluster" "test" {
 
   web_app_routing_ingress {
     default_nginx_controller = "Internal"
+  }
+}
+`, data.RandomInteger, data.Locations.Primary)
+}
+
+func (KubernetesAutomaticClusterResource) microsoftDefenderConfig(data acceptance.TestData) string {
+	return fmt.Sprintf(`
+provider "azurerm" {
+  features {}
+}
+
+resource "azurerm_resource_group" "test" {
+  name     = "acctestRG-aks-%[1]d"
+  location = "%[2]s"
+}
+
+resource "azurerm_log_analytics_workspace" "test" {
+  name                = "acctestLAW-%[1]d"
+  location            = azurerm_resource_group.test.location
+  resource_group_name = azurerm_resource_group.test.name
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+}
+
+resource "azurerm_kubernetes_automatic_cluster" "test" {
+  name                = "acctestaks%[1]d"
+  location            = azurerm_resource_group.test.location
+  resource_group_name = azurerm_resource_group.test.name
+
+  identity {
+    type = "SystemAssigned"
+  }
+
+  microsoft_defender {
+    log_analytics_workspace_id = azurerm_log_analytics_workspace.test.id
+  }
+
+  private_cluster {
+    private_dns_zone_id = "System"
   }
 }
 `, data.RandomInteger, data.Locations.Primary)

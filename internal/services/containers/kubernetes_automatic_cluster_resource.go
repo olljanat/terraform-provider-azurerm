@@ -37,6 +37,7 @@ type KubernetesAutomaticClusterModel struct {
 	APIServerAccessProfile []APIServerAccessProfileModel              `tfschema:"api_server_access"`
 	HostedSystemProfile    []HostedSystemProfile                      `tfschema:"hosted_system"`
 	Identity               []identity.ModelSystemAssignedUserAssigned `tfschema:"identity"`
+	MicrosoftDefender      []MicrosoftDefenderModel                   `tfschema:"microsoft_defender"`
 	Monitor                []MonitorProfileModel                      `tfschema:"monitor"`
 	PrivateCluster         []PrivateClusterModel                      `tfschema:"private_cluster"`
 	ServiceMeshProfile     []ServiceMeshProfileModel                  `tfschema:"service_mesh"`
@@ -69,6 +70,10 @@ type KubeConfigModel struct {
 	ClientKey            string `tfschema:"client_key"`
 	ClusterCACertificate string `tfschema:"cluster_ca_certificate"`
 }
+type MicrosoftDefenderModel struct {
+	LogAnalyticsWorkspaceID string `tfschema:"log_analytics_workspace_id"`
+}
+
 type MonitorProfileModel struct {
 	MetricsEnabled           bool   `tfschema:"metrics_enabled"`
 	ContainerInsightsEnabled bool   `tfschema:"container_insights_enabled"`
@@ -315,6 +320,21 @@ func (r KubernetesAutomaticClusterResource) Arguments() map[string]*pluginsdk.Sc
 						Required:     true,
 						ForceNew:     true,
 						ValidateFunc: commonids.ValidateSubnetID,
+					},
+				},
+			},
+		},
+
+		"microsoft_defender": {
+			Type:     pluginsdk.TypeList,
+			Optional: true,
+			MaxItems: 1,
+			Elem: &pluginsdk.Resource{
+				Schema: map[string]*pluginsdk.Schema{
+					"log_analytics_workspace_id": {
+						Type:         pluginsdk.TypeString,
+						Required:     true,
+						ValidateFunc: workspaces.ValidateWorkspaceID,
 					},
 				},
 			},
@@ -637,6 +657,18 @@ func (r KubernetesAutomaticClusterResource) Create() sdk.ResourceFunc {
 				return fmt.Errorf("expanding `monitor`: %+v", err)
 			}
 
+			var securityProfile *managedclusters.ManagedClusterSecurityProfile
+			if len(model.MicrosoftDefender) > 0 {
+				defender, err := expandKubernetesAutomaticClusterMicrosoftDefender(model.MicrosoftDefender)
+				if err != nil {
+					return fmt.Errorf("expanding `microsoft_defender`: %+v", err)
+				}
+
+				securityProfile = &managedclusters.ManagedClusterSecurityProfile{
+					Defender: defender,
+				}
+			}
+
 			parameters := managedclusters.ManagedCluster{
 				Location: location.Normalize(model.Location),
 				Sku: &managedclusters.ManagedClusterSKU{
@@ -649,6 +681,7 @@ func (r KubernetesAutomaticClusterResource) Create() sdk.ResourceFunc {
 					AzureMonitorProfile:    expandKubernetesAutomaticClusterAzureMonitorProfile(model.Monitor, nil),
 					HostedSystemProfile:    expandKubernetesAutomaticClusterHostedSystemProfile(model.HostedSystemProfile),
 					IngressProfile:         expandKubernetesAutomaticClusterWebAppRoutingIngress(model.WebAppRoutingIngress),
+					SecurityProfile:        securityProfile,
 					ServiceMeshProfile:     expandKubernetesAutomaticClusterServiceMeshProfile(model.ServiceMeshProfile, nil),
 				},
 				Identity: clusterIdentity,
@@ -725,6 +758,8 @@ func (r KubernetesAutomaticClusterResource) flatten(ctx context.Context, metadat
 			if err != nil {
 				return fmt.Errorf("flattening API access profile: %w", err)
 			}
+
+			state.MicrosoftDefender = flattenKubernetesAutomaticClusterMicrosoftDefender(props.SecurityProfile)
 
 			state.HostedSystemProfile = flattenKubernetesAutomaticClusterHostedSystemProfile(props.HostedSystemProfile)
 
@@ -814,6 +849,18 @@ func (r KubernetesAutomaticClusterResource) Update() sdk.ResourceFunc {
 				props.ApiServerAccessProfile = expandKubernetesAutomaticClusterAPIAccessProfile(model)
 			}
 
+			if metadata.ResourceData.HasChange("microsoft_defender") {
+				defender, err := expandKubernetesAutomaticClusterMicrosoftDefender(model.MicrosoftDefender)
+				if err != nil {
+					return fmt.Errorf("expanding `microsoft_defender`: %+v", err)
+				}
+
+				if props.SecurityProfile == nil {
+					props.SecurityProfile = &managedclusters.ManagedClusterSecurityProfile{}
+				}
+				props.SecurityProfile.Defender = defender
+			}
+
 			if metadata.ResourceData.HasChange("monitor") {
 				props.AzureMonitorProfile = expandKubernetesAutomaticClusterAzureMonitorProfile(model.Monitor, props.AzureMonitorProfile)
 
@@ -897,6 +944,45 @@ func flattenKubernetesAutomaticClusterHostedSystemProfile(profile *managedcluste
 	return []HostedSystemProfile{{
 		NodeSubnetID:       pointer.From(profile.NodeSubnetID),
 		SystemNodeSubnetID: pointer.From(profile.SystemNodeSubnetID),
+	}}
+}
+
+func expandKubernetesAutomaticClusterMicrosoftDefender(input []MicrosoftDefenderModel) (*managedclusters.ManagedClusterSecurityProfileDefender, error) {
+	if len(input) == 0 {
+		return &managedclusters.ManagedClusterSecurityProfileDefender{
+			SecurityMonitoring: &managedclusters.ManagedClusterSecurityProfileDefenderSecurityMonitoring{
+				Enabled: pointer.To(false),
+			},
+		}, nil
+	}
+
+	workspaceID, err := workspaces.ParseWorkspaceIDInsensitively(input[0].LogAnalyticsWorkspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("parsing `microsoft_defender.0.log_analytics_workspace_id`: %+v", err)
+	}
+
+	return &managedclusters.ManagedClusterSecurityProfileDefender{
+		LogAnalyticsWorkspaceResourceId: pointer.To(workspaceID.ID()),
+		SecurityMonitoring: &managedclusters.ManagedClusterSecurityProfileDefenderSecurityMonitoring{
+			Enabled: pointer.To(true),
+		},
+	}, nil
+}
+
+func flattenKubernetesAutomaticClusterMicrosoftDefender(input *managedclusters.ManagedClusterSecurityProfile) []MicrosoftDefenderModel {
+	if input == nil || input.Defender == nil || input.Defender.SecurityMonitoring == nil || !pointer.From(input.Defender.SecurityMonitoring.Enabled) {
+		return []MicrosoftDefenderModel{}
+	}
+
+	logAnalyticsWorkspaceID := ""
+	if v := pointer.From(input.Defender.LogAnalyticsWorkspaceResourceId); v != "" {
+		if workspaceID, err := workspaces.ParseWorkspaceIDInsensitively(v); err == nil {
+			logAnalyticsWorkspaceID = workspaceID.ID()
+		}
+	}
+
+	return []MicrosoftDefenderModel{{
+		LogAnalyticsWorkspaceID: logAnalyticsWorkspaceID,
 	}}
 }
 

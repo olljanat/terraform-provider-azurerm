@@ -47,6 +47,7 @@ type KubernetesAutomaticClusterDataSourceModel struct {
 	KubeConfig               []KubeConfigModel                          `tfschema:"kube_config"`
 	KubeConfigRaw            string                                     `tfschema:"kube_config_raw"`
 	KubeletIdentity          []KubeletIdentityDataSourceModel           `tfschema:"kubelet_identity"`
+	MicrosoftDefender        []MicrosoftDefenderDataSourceModel         `tfschema:"microsoft_defender"`
 	Monitor                  []MonitorProfileDataSourceModel            `tfschema:"monitor"`
 	NodeResourceGroup        string                                     `tfschema:"node_resource_group"`
 	NodeResourceGroupID      string                                     `tfschema:"node_resource_group_id"`
@@ -82,6 +83,10 @@ type KubeletIdentityDataSourceModel struct {
 	ClientID               string `tfschema:"client_id"`
 	ObjectID               string `tfschema:"object_id"`
 	UserAssignedIdentityID string `tfschema:"user_assigned_identity_id"`
+}
+
+type MicrosoftDefenderDataSourceModel struct {
+	LogAnalyticsWorkspaceID string `tfschema:"log_analytics_workspace_id"`
 }
 
 type MonitorProfileDataSourceModel struct {
@@ -248,6 +253,19 @@ func (KubernetesAutomaticClusterDataSource) Attributes() map[string]*pluginsdk.S
 		"kubernetes_version": {
 			Type:     pluginsdk.TypeString,
 			Computed: true,
+		},
+
+		"microsoft_defender": {
+			Type:     pluginsdk.TypeList,
+			Computed: true,
+			Elem: &pluginsdk.Resource{
+				Schema: map[string]*pluginsdk.Schema{
+					"log_analytics_workspace_id": {
+						Type:     pluginsdk.TypeString,
+						Computed: true,
+					},
+				},
+			},
 		},
 
 		"monitor": {
@@ -484,6 +502,8 @@ func (KubernetesAutomaticClusterDataSource) Read() sdk.ResourceFunc {
 
 					state.ServiceMeshProfile = flattenKubernetesAutomaticClusterDataSourceServiceMeshProfile(props.ServiceMeshProfile)
 
+					state.MicrosoftDefender = flattenKubernetesAutomaticClusterDataSourceMicrosoftDefender(props.SecurityProfile)
+
 					monitor, err := flattenKubernetesAutomaticClusterMonitorProfile(props.AzureMonitorProfile, props.AddonProfiles)
 					if err != nil {
 						return fmt.Errorf("flattening `monitor`: %w", err)
@@ -525,6 +545,18 @@ func (KubernetesAutomaticClusterDataSource) Read() sdk.ResourceFunc {
 			return metadata.Encode(&state)
 		},
 	}
+}
+
+func flattenKubernetesAutomaticClusterDataSourceMicrosoftDefender(input *managedclusters.ManagedClusterSecurityProfile) []MicrosoftDefenderDataSourceModel {
+	output := make([]MicrosoftDefenderDataSourceModel, 0, 1)
+
+	for _, defender := range flattenKubernetesAutomaticClusterMicrosoftDefender(input) {
+		output = append(output, MicrosoftDefenderDataSourceModel{
+			LogAnalyticsWorkspaceID: defender.LogAnalyticsWorkspaceID,
+		})
+	}
+
+	return output
 }
 
 func flattenKubernetesAutomaticClusterDataSourceMonitorProfile(input []MonitorProfileModel) []MonitorProfileDataSourceModel {

@@ -58,6 +58,8 @@ The following attributes are exported:
 
 * `kubernetes_version` - The version of Kubernetes used on the Managed Kubernetes Automatic Cluster.
 
+* `microsoft_defender` - A `microsoft_defender` block as documented below.
+
 * `monitor` - A `monitor` block as documented below.
 
 * `node_resource_group` - Auto-generated Resource Group containing AKS Cluster resources.
@@ -142,6 +144,12 @@ The `kubelet_identity` block exports the following:
 * `object_id` - The Object ID of the user-defined Managed Identity assigned to the Kubelets.
 
 * `user_assigned_identity_id` - The ID of the User Assigned Identity assigned to the Kubelets.
+
+---
+
+A `microsoft_defender` block exports the following:
+
+* `log_analytics_workspace_id` - The ID of the Log Analytics Workspace which the audit logs collected by Microsoft Defender are sent to.
 
 ---
 
