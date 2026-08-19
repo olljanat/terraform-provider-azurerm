@@ -33,6 +33,29 @@ func TestAccKubernetesAutomaticCluster_basic(t *testing.T) {
 	})
 }
 
+func TestAccKubernetesAutomaticCluster_defender(t *testing.T) {
+	data := acceptance.BuildTestData(t, "azurerm_kubernetes_automatic_cluster", "test")
+	r := KubernetesAutomaticClusterResource{}
+
+	data.ResourceTest(t, r, []acceptance.TestStep{
+		{
+			Config: r.basic(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+			),
+		},
+		data.ImportStep(),
+		{
+			Config: r.defenderConfig(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+				check.That(data.ResourceName).Key("microsoft_defender.#").HasValue("1"),
+			),
+		},
+		data.ImportStep(),
+	})
+}
+
 func TestAccKubernetesAutomaticCluster_requiresImport(t *testing.T) {
 	data := acceptance.BuildTestData(t, "azurerm_kubernetes_automatic_cluster", "test")
 	r := KubernetesAutomaticClusterResource{}
@@ -103,29 +126,6 @@ func TestAccKubernetesAutomaticCluster_monitor(t *testing.T) {
 				check.That(data.ResourceName).ExistsInAzure(r),
 				check.That(data.ResourceName).Key("monitor.0.metrics_enabled").HasValue("false"),
 				check.That(data.ResourceName).Key("monitor.0.container_insights_enabled").HasValue("false"),
-			),
-		},
-		data.ImportStep(),
-	})
-}
-
-func TestAccKubernetesAutomaticCluster_microsoftDefender(t *testing.T) {
-	data := acceptance.BuildTestData(t, "azurerm_kubernetes_automatic_cluster", "test")
-	r := KubernetesAutomaticClusterResource{}
-
-	data.ResourceTest(t, r, []acceptance.TestStep{
-		{
-			Config: r.basic(data),
-			Check: acceptance.ComposeTestCheckFunc(
-				check.That(data.ResourceName).ExistsInAzure(r),
-			),
-		},
-		data.ImportStep(),
-		{
-			Config: r.microsoftDefenderConfig(data),
-			Check: acceptance.ComposeTestCheckFunc(
-				check.That(data.ResourceName).ExistsInAzure(r),
-				check.That(data.ResourceName).Key("microsoft_defender.#").HasValue("1"),
 			),
 		},
 		data.ImportStep(),
@@ -304,27 +304,18 @@ resource "azurerm_kubernetes_automatic_cluster" "test" {
 `, data.RandomInteger, data.Locations.Primary)
 }
 
-func (KubernetesAutomaticClusterResource) microsoftDefenderConfig(data acceptance.TestData) string {
+func (KubernetesAutomaticClusterResource) defenderConfig(data acceptance.TestData) string {
 	return fmt.Sprintf(`
 provider "azurerm" {
-  features {}
 }
 
 resource "azurerm_resource_group" "test" {
-  name     = "acctestRG-aks-%[1]d"
-  location = "%[2]s"
-}
-
-resource "azurerm_log_analytics_workspace" "test" {
-  name                = "acctestLAW-%[1]d"
-  location            = azurerm_resource_group.test.location
-  resource_group_name = azurerm_resource_group.test.name
-  sku                 = "PerGB2018"
-  retention_in_days   = 30
+  name     = "acctestRG-aks-%d"
+  location = "%s"
 }
 
 resource "azurerm_kubernetes_automatic_cluster" "test" {
-  name                = "acctestaks%[1]d"
+  name                = "acctestaks%d"
   location            = azurerm_resource_group.test.location
   resource_group_name = azurerm_resource_group.test.name
 
@@ -335,10 +326,6 @@ resource "azurerm_kubernetes_automatic_cluster" "test" {
   microsoft_defender {
     log_analytics_workspace_id = azurerm_log_analytics_workspace.test.id
   }
-
-  private_cluster {
-    private_dns_zone_id = "System"
-  }
 }
-`, data.RandomInteger, data.Locations.Primary)
+`, data.RandomInteger, data.Locations.Primary, data.RandomInteger)
 }
