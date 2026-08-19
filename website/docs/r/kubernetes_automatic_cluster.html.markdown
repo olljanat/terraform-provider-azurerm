@@ -219,7 +219,9 @@ A `web_app_routing_ingress` block supports the following:
 
 * `dns_zone_ids` - (Optional) Resource IDs of the DNS zones to be associated with the Application Routing add-on. Public and private DNS zones can be in different resource groups, but all public DNS zones must be in the same resource group and all private DNS zones must be in the same resource group.
 
-* `default_nginx_controller` - (Optional) Specifies the ingress type for the default `NginxIngressController` custom resource. The allowed values are `Internal`, `External` and `AnnotationControlled`. At least one of `default_nginx_controller` or `istio_enabled` must be specified.
+* `default_nginx_controller` - (Optional) Specifies the ingress type for the default `NginxIngressController` custom resource. The allowed values are `None`, `AnnotationControlled`, `External` and `Internal`. At least one of `default_nginx_controller` or `istio_enabled` must be specified.
+
+-> **Note:** `None` deploys no default NGINX Ingress Controller and is equivalent to omitting `default_nginx_controller`, so switching between the two doesn't produce a diff.
 
 * `istio_enabled` - (Optional) Enables Istio as a Gateway API implementation. Defaults to `false`. At least one of `default_nginx_controller` or `istio_enabled` must be specified.
 

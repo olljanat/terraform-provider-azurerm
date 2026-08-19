@@ -480,8 +480,10 @@ func (r KubernetesAutomaticClusterResource) Arguments() map[string]*pluginsdk.Sc
 							string(managedclusters.NginxIngressControllerTypeAnnotationControlled),
 							string(managedclusters.NginxIngressControllerTypeInternal),
 							string(managedclusters.NginxIngressControllerTypeExternal),
+							string(managedclusters.NginxIngressControllerTypeNone),
 						}, false),
-						AtLeastOneOf: []string{"web_app_routing_ingress.0.default_nginx_controller", "web_app_routing_ingress.0.istio_enabled"},
+						DiffSuppressFunc: SuppressDefaultNginxControllerNone,
+						AtLeastOneOf:     []string{"web_app_routing_ingress.0.default_nginx_controller", "web_app_routing_ingress.0.istio_enabled"},
 					},
 
 					"istio_enabled": {
@@ -1107,6 +1109,15 @@ func flattenKubernetesAutomaticClusterPrivateCluster(enablePrivateCluster bool, 
 			PrivateDNSZoneID:                privateDNSZoneID,
 		},
 	}, nil
+}
+
+// SuppressDefaultNginxControllerNone treats an unset `default_nginx_controller` and `None` as equivalent.
+// An unset value has always been sent to Azure as `None` and is read back as an empty string, so suppressing
+// the difference keeps existing configurations which omit this property working whilst allowing `None` to be
+// specified explicitly, as it can be for `azurerm_kubernetes_cluster`.
+func SuppressDefaultNginxControllerNone(_, old, new string, _ *pluginsdk.ResourceData) bool {
+	none := string(managedclusters.NginxIngressControllerTypeNone)
+	return (old == "" && new == none) || (old == none && new == "")
 }
 
 func expandKubernetesAutomaticClusterWebAppRoutingIngress(input []WebAppRoutingIngressModel) *managedclusters.ManagedClusterIngressProfile {
