@@ -58,6 +58,10 @@ The following attributes are exported:
 
 * `kubernetes_version` - The version of Kubernetes used on the Managed Kubernetes Automatic Cluster.
 
+* `microsoft_defender` - A `microsoft_defender` block as documented below.
+
+* `monitor` - A `monitor` block as documented below.
+
 * `node_resource_group` - Auto-generated Resource Group containing AKS Cluster resources.
 
 * `node_resource_group_id` - The ID of the Resource Group containing the resources for this Managed Kubernetes Automatic Cluster.
@@ -140,6 +144,22 @@ The `kubelet_identity` block exports the following:
 * `object_id` - The Object ID of the user-defined Managed Identity assigned to the Kubelets.
 
 * `user_assigned_identity_id` - The ID of the User Assigned Identity assigned to the Kubelets.
+
+---
+
+A `microsoft_defender` block exports the following:
+
+* `log_analytics_workspace_id` - The ID of the Log Analytics Workspace which the audit logs collected by Microsoft Defender are sent to.
+
+---
+
+A `monitor` block exports the following:
+
+* `metrics_enabled` - Whether Managed Prometheus (Azure Monitor managed service for Prometheus) collects metrics from this Managed Kubernetes Automatic Cluster.
+
+* `container_insights_enabled` - Whether Container Insights collects logs from this Managed Kubernetes Automatic Cluster.
+
+* `log_analytics_workspace_id` - The ID of the Log Analytics Workspace which Container Insights sends logs to.
 
 ---
 

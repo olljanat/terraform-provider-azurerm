@@ -151,6 +151,10 @@ The following arguments are supported:
 
 * `hosted_system` - (Optional) A `hosted_system` block as defined below.
 
+* `microsoft_defender` - (Optional) A `microsoft_defender` block as defined below.
+
+* `monitor` - (Optional) A `monitor` block as defined below.
+
 * `private_cluster` - (Optional) A `private_cluster` block as defined below.
 
 * `web_app_routing_ingress` - (Optional) A `web_app_routing_ingress` block as defined below.
@@ -217,7 +221,9 @@ A `web_app_routing_ingress` block supports the following:
 
 * `dns_zone_ids` - (Optional) Resource IDs of the DNS zones to be associated with the Application Routing add-on. Public and private DNS zones can be in different resource groups, but all public DNS zones must be in the same resource group and all private DNS zones must be in the same resource group.
 
-* `default_nginx_controller` - (Optional) Specifies the ingress type for the default `NginxIngressController` custom resource. The allowed values are `Internal`, `External` and `AnnotationControlled`. At least one of `default_nginx_controller` or `istio_enabled` must be specified.
+* `default_nginx_controller` - (Optional) Specifies the ingress type for the default `NginxIngressController` custom resource. The allowed values are `None`, `AnnotationControlled`, `External` and `Internal`. At least one of `default_nginx_controller` or `istio_enabled` must be specified.
+
+-> **Note:** `None` deploys no default NGINX Ingress Controller and is equivalent to omitting `default_nginx_controller`, so switching between the two doesn't produce a diff.
 
 * `istio_enabled` - (Optional) Enables Istio as a Gateway API implementation. Defaults to `false`. At least one of `default_nginx_controller` or `istio_enabled` must be specified.
 
@@ -228,6 +234,24 @@ A `hosted_system` block supports the following:
 * `node_subnet_id` - (Required) The ID of the Subnet where the user nodes are hosted. Is required for bring your own networking
 
 * `system_node_subnet_id` - (Required) The ID of the Subnet where the system nodes are hosted. Changing this forces a new resource to be created. Is required for bring your own networking
+
+---
+
+A `microsoft_defender` block supports the following:
+
+* `log_analytics_workspace_id` - (Required) Specifies the ID of the Log Analytics Workspace where the audit logs collected by Microsoft Defender should be sent to.
+
+---
+
+A `monitor` block supports the following:
+
+* `metrics_enabled` - (Optional) Should Managed Prometheus (Azure Monitor managed service for Prometheus) collect metrics from this Kubernetes Cluster? Defaults to `true`.
+
+* `container_insights_enabled` - (Optional) Should Container Insights collect logs from this Kubernetes Cluster? Defaults to `true`.
+
+* `log_analytics_workspace_id` - (Optional) The ID of the Log Analytics Workspace which Container Insights should send logs to. Can only be set when `container_insights_enabled` is set to `true`.
+
+-> **Note:** Azure enables Managed Prometheus and Container Insights for Kubernetes Automatic Clusters, creating an Azure Monitor Workspace and a Log Analytics Workspace when none are specified. Omitting the `monitor` block leaves the monitoring configuration as-is, whilst setting `metrics_enabled` and `container_insights_enabled` to `false` disables the collection of metrics and logs for this cluster.
 
 ---
 
