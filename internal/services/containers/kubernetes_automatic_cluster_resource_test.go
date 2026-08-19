@@ -73,6 +73,42 @@ func TestAccKubernetesAutomaticCluster_tags(t *testing.T) {
 	})
 }
 
+func TestAccKubernetesAutomaticCluster_monitor(t *testing.T) {
+	data := acceptance.BuildTestData(t, "azurerm_kubernetes_automatic_cluster", "test")
+	r := KubernetesAutomaticClusterResource{}
+
+	data.ResourceTest(t, r, []acceptance.TestStep{
+		{
+			Config: r.monitorDisabledConfig(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+				check.That(data.ResourceName).Key("monitor.0.metrics_enabled").HasValue("false"),
+				check.That(data.ResourceName).Key("monitor.0.container_insights_enabled").HasValue("false"),
+			),
+		},
+		data.ImportStep(),
+		{
+			Config: r.monitorEnabledConfig(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+				check.That(data.ResourceName).Key("monitor.0.metrics_enabled").HasValue("true"),
+				check.That(data.ResourceName).Key("monitor.0.container_insights_enabled").HasValue("true"),
+				check.That(data.ResourceName).Key("monitor.0.log_analytics_workspace_id").Exists(),
+			),
+		},
+		data.ImportStep(),
+		{
+			Config: r.monitorDisabledConfig(data),
+			Check: acceptance.ComposeTestCheckFunc(
+				check.That(data.ResourceName).ExistsInAzure(r),
+				check.That(data.ResourceName).Key("monitor.0.metrics_enabled").HasValue("false"),
+				check.That(data.ResourceName).Key("monitor.0.container_insights_enabled").HasValue("false"),
+			),
+		},
+		data.ImportStep(),
+	})
+}
+
 func (t KubernetesAutomaticClusterResource) Exists(ctx context.Context, clients *clients.Client, state *pluginsdk.InstanceState) (*bool, error) {
 	id, err := commonids.ParseKubernetesClusterIDInsensitively(state.ID)
 	if err != nil {
@@ -178,4 +214,69 @@ resource "azurerm_kubernetes_automatic_cluster" "test" {
   }
 }
 `, data.RandomInteger, data.Locations.Primary, data.RandomInteger)
+}
+
+func (KubernetesAutomaticClusterResource) monitorDisabledConfig(data acceptance.TestData) string {
+	return fmt.Sprintf(`
+provider "azurerm" {
+  features {}
+}
+
+resource "azurerm_resource_group" "test" {
+  name     = "acctestRG-aks-%d"
+  location = "%s"
+}
+
+resource "azurerm_kubernetes_automatic_cluster" "test" {
+  name                = "acctestaks%d"
+  location            = azurerm_resource_group.test.location
+  resource_group_name = azurerm_resource_group.test.name
+
+  identity {
+    type = "SystemAssigned"
+  }
+
+  monitor {
+    metrics_enabled            = false
+    container_insights_enabled = false
+  }
+}
+`, data.RandomInteger, data.Locations.Primary, data.RandomInteger)
+}
+
+func (KubernetesAutomaticClusterResource) monitorEnabledConfig(data acceptance.TestData) string {
+	return fmt.Sprintf(`
+provider "azurerm" {
+  features {}
+}
+
+resource "azurerm_resource_group" "test" {
+  name     = "acctestRG-aks-%[1]d"
+  location = "%[2]s"
+}
+
+resource "azurerm_log_analytics_workspace" "test" {
+  name                = "acctestLAW-%[1]d"
+  location            = azurerm_resource_group.test.location
+  resource_group_name = azurerm_resource_group.test.name
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+}
+
+resource "azurerm_kubernetes_automatic_cluster" "test" {
+  name                = "acctestaks%[1]d"
+  location            = azurerm_resource_group.test.location
+  resource_group_name = azurerm_resource_group.test.name
+
+  identity {
+    type = "SystemAssigned"
+  }
+
+  monitor {
+    metrics_enabled            = true
+    container_insights_enabled = true
+    log_analytics_workspace_id = azurerm_log_analytics_workspace.test.id
+  }
+}
+`, data.RandomInteger, data.Locations.Primary)
 }

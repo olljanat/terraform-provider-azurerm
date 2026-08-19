@@ -151,6 +151,8 @@ The following arguments are supported:
 
 * `hosted_system` - (Optional) A `hosted_system` block as defined below.
 
+* `monitor` - (Optional) A `monitor` block as defined below.
+
 * `private_cluster` - (Optional) A `private_cluster` block as defined below.
 
 * `web_app_routing_ingress` - (Optional) A `web_app_routing_ingress` block as defined below.
@@ -228,6 +230,18 @@ A `hosted_system` block supports the following:
 * `node_subnet_id` - (Required) The ID of the Subnet where the user nodes are hosted. Is required for bring your own networking
 
 * `system_node_subnet_id` - (Required) The ID of the Subnet where the system nodes are hosted. Changing this forces a new resource to be created. Is required for bring your own networking
+
+---
+
+A `monitor` block supports the following:
+
+* `metrics_enabled` - (Optional) Should Managed Prometheus (Azure Monitor managed service for Prometheus) collect metrics from this Kubernetes Cluster? Defaults to `true`.
+
+* `container_insights_enabled` - (Optional) Should Container Insights collect logs from this Kubernetes Cluster? Defaults to `true`.
+
+* `log_analytics_workspace_id` - (Optional) The ID of the Log Analytics Workspace which Container Insights should send logs to. Can only be set when `container_insights_enabled` is set to `true`.
+
+-> **Note:** Azure enables Managed Prometheus and Container Insights for Kubernetes Automatic Clusters, creating an Azure Monitor Workspace and a Log Analytics Workspace when none are specified. Omitting the `monitor` block leaves the monitoring configuration as-is, whilst setting `metrics_enabled` and `container_insights_enabled` to `false` disables the collection of metrics and logs for this cluster.
 
 ---
 

@@ -47,6 +47,7 @@ type KubernetesAutomaticClusterDataSourceModel struct {
 	KubeConfig               []KubeConfigModel                          `tfschema:"kube_config"`
 	KubeConfigRaw            string                                     `tfschema:"kube_config_raw"`
 	KubeletIdentity          []KubeletIdentityDataSourceModel           `tfschema:"kubelet_identity"`
+	Monitor                  []MonitorProfileDataSourceModel            `tfschema:"monitor"`
 	NodeResourceGroup        string                                     `tfschema:"node_resource_group"`
 	NodeResourceGroupID      string                                     `tfschema:"node_resource_group_id"`
 	ServiceMeshProfile       []ServiceMeshProfileDataSourceModel        `tfschema:"service_mesh"`
@@ -81,6 +82,12 @@ type KubeletIdentityDataSourceModel struct {
 	ClientID               string `tfschema:"client_id"`
 	ObjectID               string `tfschema:"object_id"`
 	UserAssignedIdentityID string `tfschema:"user_assigned_identity_id"`
+}
+
+type MonitorProfileDataSourceModel struct {
+	MetricsEnabled           bool   `tfschema:"metrics_enabled"`
+	ContainerInsightsEnabled bool   `tfschema:"container_insights_enabled"`
+	LogAnalyticsWorkspaceID  string `tfschema:"log_analytics_workspace_id"`
 }
 
 type PrivateClusterDataSourceModel struct {
@@ -241,6 +248,27 @@ func (KubernetesAutomaticClusterDataSource) Attributes() map[string]*pluginsdk.S
 		"kubernetes_version": {
 			Type:     pluginsdk.TypeString,
 			Computed: true,
+		},
+
+		"monitor": {
+			Type:     pluginsdk.TypeList,
+			Computed: true,
+			Elem: &pluginsdk.Resource{
+				Schema: map[string]*pluginsdk.Schema{
+					"metrics_enabled": {
+						Type:     pluginsdk.TypeBool,
+						Computed: true,
+					},
+					"container_insights_enabled": {
+						Type:     pluginsdk.TypeBool,
+						Computed: true,
+					},
+					"log_analytics_workspace_id": {
+						Type:     pluginsdk.TypeString,
+						Computed: true,
+					},
+				},
+			},
 		},
 
 		"node_resource_group": {
@@ -456,6 +484,12 @@ func (KubernetesAutomaticClusterDataSource) Read() sdk.ResourceFunc {
 
 					state.ServiceMeshProfile = flattenKubernetesAutomaticClusterDataSourceServiceMeshProfile(props.ServiceMeshProfile)
 
+					monitor, err := flattenKubernetesAutomaticClusterMonitorProfile(props.AzureMonitorProfile, props.AddonProfiles)
+					if err != nil {
+						return fmt.Errorf("flattening `monitor`: %w", err)
+					}
+					state.Monitor = flattenKubernetesAutomaticClusterDataSourceMonitorProfile(monitor)
+
 					// Flatten web app routing ingress
 					webAppRoutingIngress, err := flattenKubernetesAutomaticClusterDataSourceWebAppRoutingIngress(props.IngressProfile)
 					if err != nil {
@@ -491,6 +525,20 @@ func (KubernetesAutomaticClusterDataSource) Read() sdk.ResourceFunc {
 			return metadata.Encode(&state)
 		},
 	}
+}
+
+func flattenKubernetesAutomaticClusterDataSourceMonitorProfile(input []MonitorProfileModel) []MonitorProfileDataSourceModel {
+	output := make([]MonitorProfileDataSourceModel, 0, len(input))
+
+	for _, monitor := range input {
+		output = append(output, MonitorProfileDataSourceModel{
+			MetricsEnabled:           monitor.MetricsEnabled,
+			ContainerInsightsEnabled: monitor.ContainerInsightsEnabled,
+			LogAnalyticsWorkspaceID:  monitor.LogAnalyticsWorkspaceID,
+		})
+	}
+
+	return output
 }
 
 func flattenKubernetesAutomaticClusterCredentials(model *managedclusters.CredentialResults, configName string) (*string, []KubeConfigModel) {

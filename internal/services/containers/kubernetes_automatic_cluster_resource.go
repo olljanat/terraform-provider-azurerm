@@ -19,6 +19,7 @@ import (
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/tags"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/containerservice/2026-04-01/managedclusters"
 	dnsValidate "github.com/hashicorp/go-azure-sdk/resource-manager/dns/2018-05-01/zones"
+	"github.com/hashicorp/go-azure-sdk/resource-manager/operationalinsights/2020-08-01/workspaces"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/privatedns/2024-06-01/privatezones"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/validate"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/sdk"
@@ -36,6 +37,7 @@ type KubernetesAutomaticClusterModel struct {
 	APIServerAccessProfile []APIServerAccessProfileModel              `tfschema:"api_server_access"`
 	HostedSystemProfile    []HostedSystemProfile                      `tfschema:"hosted_system"`
 	Identity               []identity.ModelSystemAssignedUserAssigned `tfschema:"identity"`
+	Monitor                []MonitorProfileModel                      `tfschema:"monitor"`
 	PrivateCluster         []PrivateClusterModel                      `tfschema:"private_cluster"`
 	ServiceMeshProfile     []ServiceMeshProfileModel                  `tfschema:"service_mesh"`
 	WebAppRoutingIngress   []WebAppRoutingIngressModel                `tfschema:"web_app_routing_ingress"`
@@ -67,6 +69,12 @@ type KubeConfigModel struct {
 	ClientKey            string `tfschema:"client_key"`
 	ClusterCACertificate string `tfschema:"cluster_ca_certificate"`
 }
+type MonitorProfileModel struct {
+	MetricsEnabled           bool   `tfschema:"metrics_enabled"`
+	ContainerInsightsEnabled bool   `tfschema:"container_insights_enabled"`
+	LogAnalyticsWorkspaceID  string `tfschema:"log_analytics_workspace_id"`
+}
+
 type PrivateClusterModel struct {
 	PrivateClusterPublicFQDNEnabled bool   `tfschema:"public_fully_qualified_domain_name_enabled"`
 	PrivateDNSZoneID                string `tfschema:"private_dns_zone_id"`
@@ -210,6 +218,18 @@ func (r KubernetesAutomaticClusterResource) CustomizeDiff() sdk.ResourceFunc {
 				}
 			}
 
+			if rawMonitor := rd.GetRawConfig().AsValueMap()["monitor"]; !rawMonitor.IsNull() {
+				if rawMonitor.IsKnown() && len(rawMonitor.AsValueSlice()) > 0 {
+					rawMonitorConfig := rawMonitor.AsValueSlice()[0]
+					if !rawMonitorConfig.IsNull() {
+						rawWorkspaceID := rawMonitorConfig.AsValueMap()["log_analytics_workspace_id"]
+						if !rawWorkspaceID.IsNull() && !rd.Get("monitor.0.container_insights_enabled").(bool) {
+							return fmt.Errorf("`monitor.0.log_analytics_workspace_id` can only be set when `monitor.0.container_insights_enabled` is set to `true`")
+						}
+					}
+				}
+			}
+
 			privateCluster := rd.Get("private_cluster").([]interface{})
 			if len(privateCluster) > 0 && privateCluster[0] != nil {
 				privateClusterConfig := privateCluster[0].(map[string]interface{})
@@ -295,6 +315,37 @@ func (r KubernetesAutomaticClusterResource) Arguments() map[string]*pluginsdk.Sc
 						Required:     true,
 						ForceNew:     true,
 						ValidateFunc: commonids.ValidateSubnetID,
+					},
+				},
+			},
+		},
+
+		"monitor": {
+			Type:     pluginsdk.TypeList,
+			Optional: true,
+			// NOTE: O+C since Azure configures monitoring for Automatic Clusters when it isn't specified
+			Computed: true,
+			MaxItems: 1,
+			Elem: &pluginsdk.Resource{
+				Schema: map[string]*pluginsdk.Schema{
+					"metrics_enabled": {
+						Type:     pluginsdk.TypeBool,
+						Optional: true,
+						Default:  true,
+					},
+
+					"container_insights_enabled": {
+						Type:     pluginsdk.TypeBool,
+						Optional: true,
+						Default:  true,
+					},
+
+					"log_analytics_workspace_id": {
+						Type:     pluginsdk.TypeString,
+						Optional: true,
+						// NOTE: O+C since Azure creates a Log Analytics Workspace when Container Insights is enabled without one being specified
+						Computed:     true,
+						ValidateFunc: workspaces.ValidateWorkspaceID,
 					},
 				},
 			},
@@ -579,6 +630,11 @@ func (r KubernetesAutomaticClusterResource) Create() sdk.ResourceFunc {
 				return fmt.Errorf("expanding identity: %+v", err)
 			}
 
+			addonProfiles, err := expandKubernetesAutomaticClusterMonitorAddonProfiles(model.Monitor, nil)
+			if err != nil {
+				return fmt.Errorf("expanding `monitor`: %+v", err)
+			}
+
 			parameters := managedclusters.ManagedCluster{
 				Location: location.Normalize(model.Location),
 				Sku: &managedclusters.ManagedClusterSKU{
@@ -586,7 +642,9 @@ func (r KubernetesAutomaticClusterResource) Create() sdk.ResourceFunc {
 					Tier: pointer.To(managedclusters.ManagedClusterSKUTierStandard),
 				},
 				Properties: &managedclusters.ManagedClusterProperties{
+					AddonProfiles:          addonProfiles,
 					ApiServerAccessProfile: expandKubernetesAutomaticClusterAPIAccessProfile(model),
+					AzureMonitorProfile:    expandKubernetesAutomaticClusterAzureMonitorProfile(model.Monitor, nil),
 					HostedSystemProfile:    expandKubernetesAutomaticClusterHostedSystemProfile(model.HostedSystemProfile),
 					IngressProfile:         expandKubernetesAutomaticClusterWebAppRoutingIngress(model.WebAppRoutingIngress),
 					ServiceMeshProfile:     expandKubernetesAutomaticClusterServiceMeshProfile(model.ServiceMeshProfile, nil),
@@ -667,6 +725,11 @@ func (r KubernetesAutomaticClusterResource) flatten(ctx context.Context, metadat
 			}
 
 			state.HostedSystemProfile = flattenKubernetesAutomaticClusterHostedSystemProfile(props.HostedSystemProfile)
+
+			state.Monitor, err = flattenKubernetesAutomaticClusterMonitorProfile(props.AzureMonitorProfile, props.AddonProfiles)
+			if err != nil {
+				return fmt.Errorf("flattening `monitor`: %w", err)
+			}
 
 			flattenedIdentity, err := identity.FlattenSystemOrUserAssignedMapToModel(model.Identity)
 			if err != nil {
@@ -749,6 +812,15 @@ func (r KubernetesAutomaticClusterResource) Update() sdk.ResourceFunc {
 				props.ApiServerAccessProfile = expandKubernetesAutomaticClusterAPIAccessProfile(model)
 			}
 
+			if metadata.ResourceData.HasChange("monitor") {
+				props.AzureMonitorProfile = expandKubernetesAutomaticClusterAzureMonitorProfile(model.Monitor, props.AzureMonitorProfile)
+
+				props.AddonProfiles, err = expandKubernetesAutomaticClusterMonitorAddonProfiles(model.Monitor, props.AddonProfiles)
+				if err != nil {
+					return fmt.Errorf("expanding `monitor`: %+v", err)
+				}
+			}
+
 			if metadata.ResourceData.HasChange("identity") {
 				existing.Model.Identity, err = identity.ExpandSystemOrUserAssignedMapFromModel(model.Identity)
 				if err != nil {
@@ -824,6 +896,124 @@ func flattenKubernetesAutomaticClusterHostedSystemProfile(profile *managedcluste
 		NodeSubnetID:       pointer.From(profile.NodeSubnetID),
 		SystemNodeSubnetID: pointer.From(profile.SystemNodeSubnetID),
 	}}
+}
+
+// expandKubernetesAutomaticClusterAzureMonitorProfile toggles Managed Prometheus (Azure Monitor Metrics), which
+// Azure enables by default for Automatic Clusters. Any existing profile is preserved when it isn't being disabled,
+// so that settings which aren't exposed by this resource (e.g. Application Monitoring) are left untouched.
+func expandKubernetesAutomaticClusterAzureMonitorProfile(input []MonitorProfileModel, existing *managedclusters.ManagedClusterAzureMonitorProfile) *managedclusters.ManagedClusterAzureMonitorProfile {
+	if len(input) == 0 {
+		return existing
+	}
+
+	if !input[0].MetricsEnabled {
+		profile := &managedclusters.ManagedClusterAzureMonitorProfile{
+			Metrics: &managedclusters.ManagedClusterAzureMonitorProfileMetrics{
+				Enabled: false,
+			},
+		}
+
+		if existing != nil {
+			profile.AppMonitoring = existing.AppMonitoring
+		}
+
+		return profile
+	}
+
+	profile := existing
+	if profile == nil {
+		profile = &managedclusters.ManagedClusterAzureMonitorProfile{}
+	}
+
+	if profile.Metrics == nil {
+		profile.Metrics = &managedclusters.ManagedClusterAzureMonitorProfileMetrics{}
+	}
+	profile.Metrics.Enabled = true
+
+	return profile
+}
+
+// expandKubernetesAutomaticClusterMonitorAddonProfiles toggles the Container Insights (`omsagent`) addon, which
+// Azure enables by default for Automatic Clusters.
+func expandKubernetesAutomaticClusterMonitorAddonProfiles(input []MonitorProfileModel, existing *map[string]managedclusters.ManagedClusterAddonProfile) (*map[string]managedclusters.ManagedClusterAddonProfile, error) {
+	if len(input) == 0 {
+		return existing, nil
+	}
+
+	config := input[0]
+
+	addonProfiles := make(map[string]managedclusters.ManagedClusterAddonProfile)
+	existingOmsAgent := managedclusters.ManagedClusterAddonProfile{}
+	if existing != nil {
+		for k, v := range *existing {
+			if strings.EqualFold(k, omsAgentKey) {
+				existingOmsAgent = v
+				continue
+			}
+			addonProfiles[k] = v
+		}
+	}
+
+	omsAgent := managedclusters.ManagedClusterAddonProfile{
+		Enabled: config.ContainerInsightsEnabled,
+	}
+
+	if config.ContainerInsightsEnabled {
+		omsAgent.Config = existingOmsAgent.Config
+		omsAgent.Identity = existingOmsAgent.Identity
+
+		if config.LogAnalyticsWorkspaceID != "" {
+			workspaceID, err := workspaces.ParseWorkspaceIDInsensitively(config.LogAnalyticsWorkspaceID)
+			if err != nil {
+				return nil, fmt.Errorf("parsing `monitor.0.log_analytics_workspace_id`: %+v", err)
+			}
+
+			addonConfig := make(map[string]string)
+			if omsAgent.Config != nil {
+				addonConfig = *omsAgent.Config
+			}
+			addonConfig["logAnalyticsWorkspaceResourceID"] = workspaceID.ID()
+			omsAgent.Config = pointer.To(addonConfig)
+		}
+	}
+
+	addonProfiles[omsAgentKey] = omsAgent
+
+	return pointer.To(addonProfiles), nil
+}
+
+func flattenKubernetesAutomaticClusterMonitorProfile(azureMonitorProfile *managedclusters.ManagedClusterAzureMonitorProfile, addonProfiles *map[string]managedclusters.ManagedClusterAddonProfile) ([]MonitorProfileModel, error) {
+	monitor := MonitorProfileModel{}
+
+	if azureMonitorProfile != nil && azureMonitorProfile.Metrics != nil {
+		monitor.MetricsEnabled = azureMonitorProfile.Metrics.Enabled
+	}
+
+	if addonProfiles != nil {
+		for k, v := range *addonProfiles {
+			if !strings.EqualFold(k, omsAgentKey) {
+				continue
+			}
+
+			monitor.ContainerInsightsEnabled = v.Enabled
+
+			if v.Config != nil {
+				for configKey, configValue := range *v.Config {
+					if !strings.EqualFold(configKey, "logAnalyticsWorkspaceResourceID") || configValue == "" {
+						continue
+					}
+
+					workspaceID, err := workspaces.ParseWorkspaceIDInsensitively(configValue)
+					if err != nil {
+						return nil, fmt.Errorf("parsing `monitor.0.log_analytics_workspace_id`: %+v", err)
+					}
+					monitor.LogAnalyticsWorkspaceID = workspaceID.ID()
+				}
+			}
+		}
+	}
+
+	return []MonitorProfileModel{monitor}, nil
 }
 
 func expandKubernetesAutomaticClusterAPIAccessProfile(model KubernetesAutomaticClusterModel) *managedclusters.ManagedClusterAPIServerAccessProfile {
